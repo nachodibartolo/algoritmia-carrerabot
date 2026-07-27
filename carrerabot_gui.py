@@ -1,27 +1,8 @@
-# =====================================================================
-#  CarreraBot - Sistema experto de correlatividades academicas
-#  Trabajo Final - Algoritmia y Logica Computacional (UCA)
-#  Alumno: Ignacio Di Bartolo
-#
-#  Interfaz grafica (Tkinter) + puente Python <-> SWI-Prolog (PySwip).
-#  La base de conocimiento y el motor de inferencia estan en Prolog
-#  (archivo carrerabot.pl); este modulo solo consulta al motor y
-#  presenta los resultados en un chat.
-#
-#  Librerias necesarias y como instalarlas:
-#    - SWI-Prolog (motor de inferencia, programa externo):
-#        macOS:   brew install swi-prolog
-#        Linux:   sudo apt-get install swi-prolog
-#        Windows: instalador desde https://www.swi-prolog.org
-#    - pyswip (puente Python <-> SWI-Prolog):
-#        pip install pyswip        (o pip3 install pyswip)
-#    - tkinter (interfaz grafica): viene incluida con Python.
-#        macOS (python de Homebrew): brew install python-tk
-#        Linux (si faltara):         sudo apt-get install python3-tk
-#    - os / pathlib: modulos estandar de Python, no requieren instalacion.
-#
-#  Ejecucion:  python3 carrerabot_gui.py
-# =====================================================================
+# CarreraBot - Sistema experto de correlatividades academicas
+# Trabajo Final - Algoritmia y Logica Computacional (UCA)
+# Alumno: Ignacio Di Bartolo
+# Requiere: SWI-Prolog, pyswip (pip install pyswip) y tkinter.
+# Ejecucion: python3 carrerabot_gui.py
 
 import os
 from pathlib import Path
@@ -33,50 +14,34 @@ from tkinter import font as tkfont
 from tkinter import messagebox
 from tkinter import ttk
 
-# Carpeta donde vive este script: se usa para localizar carrerabot.pl
-# y el archivo de estado, sin depender de desde donde se ejecute.
 CARPETA = Path(__file__).resolve().parent
 ARCHIVO_PROLOG = "carrerabot.pl"
 ARCHIVO_ESTADO = CARPETA / "estado_carrera.txt"
 
-
 class ExpertoCarrera:
-    """Puente entre Python y el sistema experto escrito en Prolog.
-
-    Cada metodo publico se corresponde con uno o mas predicados de
-    carrerabot.pl. Python nunca razona sobre correlatividades: solo
-    consulta al motor de inferencia de Prolog y formatea resultados.
-    """
 
     def __init__(self):
-        # PySwip resuelve rutas relativas contra el directorio actual,
-        # por eso nos paramos en la carpeta del proyecto antes del consult.
         os.chdir(CARPETA)
         self.prolog = Prolog()
         self.prolog.consult(ARCHIVO_PROLOG)
-        # Cache slug -> nombre completo (los nombres no cambian).
         self.nombres = {
             r["M"]: r["N"] for r in self.prolog.query("nombre(M, N)")
         }
 
-    # ----------------- helpers internos -----------------
+    # helpers internos
 
     def _q(self, consulta):
-        """Ejecuta una consulta Prolog y devuelve la lista de soluciones."""
         return list(self.prolog.query(consulta))
 
     def _ok(self, consulta):
-        """True si la consulta tiene al menos una solucion (exito)."""
         return bool(self._q(consulta))
 
     def nombre_de(self, slug):
         return self.nombres.get(slug, slug)
 
-    # ----------------- estado de la carrera -----------------
+    # estado de la carrera
 
     def materias_info(self):
-        """[(slug, nombre, anio, cuatri, estado, nota), ...] en orden de
-        plan. La nota es -1 si la materia no tiene nota numerica."""
         filas = self._q("materias_info(L)")[0]["L"]
         return [(m, n, a, c, e, nt) for m, n, a, c, e, nt in filas]
 
@@ -84,52 +49,42 @@ class ExpertoCarrera:
         return self._q(f"estado_materia({slug}, E)")[0]["E"]
 
     def aprobar(self, slug):
-        """Registra una materia como aprobada. Devuelve True si el motor
-        valido la operacion (todas las correlativas aprobadas)."""
         return self._ok(f"aprobar({slug})")
 
     def desaprobar(self, slug):
         return self._ok(f"desaprobar({slug})")
 
     def faltantes_directas(self, slug):
-        """Correlativas directas aun no aprobadas (modulo de explicacion)."""
         return [r["F"] for r in self._q(f"falta_para({slug}, F)")]
 
     def dependientes_aprobadas(self, slug):
-        """Materias aprobadas que dependen de slug (impiden desaprobarla)."""
         return sorted({r["X"] for r in self._q(f"impide_desaprobar({slug}, X)")})
 
-    # ----------------- motor de inferencia -----------------
+    # motor de inferencia
 
     def cursables(self):
-        """Materias disponibles para cursar, en orden curricular."""
         return [r["M"] for r in self._q("plan(M, _, _), puede_cursar(M)")]
 
     def camino_para(self, slug):
-        """Ruta pendiente (ordenada por plan) para llegar a una materia."""
         return self._q(f"camino_para({slug}, C)")[0]["C"]
 
     def desbloquea(self, slug):
         return self._q(f"desbloquea({slug}, N)")[0]["N"]
 
     def recomendaciones(self):
-        """[(impacto, slug), ...] cursables ordenadas por impacto desc."""
         return [(n, m) for n, m in self._q("recomendaciones(L)")[0]["L"]]
 
     def mejor_cursada(self, k=3):
-        """Mejor combinacion de k materias (busqueda exhaustiva en Prolog).
-        Devuelve (seleccion, valor) o None si no hay cursables."""
         r = self._q(f"mejor_cursada({k}, Sel, Valor)")
         if not r:
             return None
         return (list(r[0]["Sel"]), r[0]["Valor"])
 
     def simular(self, slug):
-        """Materias que se habilitarian de inmediato al aprobar slug."""
         r = self._q(f"simular_aprobar({slug}, Nuevas)")
         return list(r[0]["Nuevas"]) if r else None
 
-    # ----------------- progreso -----------------
+    # progreso
 
     def progreso(self):
         r = self._q("progreso(A, T)")[0]
@@ -140,31 +95,23 @@ class ExpertoCarrera:
                 for r in self._q("progreso_anio(Anio, A, T)")]
 
     def promedio(self):
-        """Promedio de las notas numericas, o None si no hay notas."""
         r = self._q("promedio(P)")
         return r[0]["P"] if r else None
 
-    # ----------------- maquina de Turing -----------------
+    # maquina de Turing
 
     def avance_turing(self):
-        """Ejecuta la MT sobre la cinta de avance.
-        Devuelve (cinta, 'ordenado'|'desordenado', [arrastradas])."""
         r = self._q("avance_ordenado(Cinta, Res)")[0]
         arrastradas = [x["M"] for x in self._q("plan(M, _, _), arrastrada(M)")]
         return (list(r["Cinta"]), r["Res"], arrastradas)
 
-    # ----------------- persistencia del estado -----------------
+    # persistencia del estado
 
     def guardar_estado(self):
-        """Guarda las materias aprobadas (una por linea) para la proxima
-        sesion. El estado dinamico de Prolog vive solo en memoria."""
         aprobadas = [r["M"] for r in self._q("plan(M, _, _), aprobada(M)")]
         ARCHIVO_ESTADO.write_text("\n".join(aprobadas), encoding="utf-8")
 
     def cargar_estado(self):
-        """Restaura el estado guardado. Devuelve cuantas materias cargo.
-        En la primera ejecucion (sin estado guardado) carga la historia
-        academica real del alumno definida en carrerabot.pl."""
         if not ARCHIVO_ESTADO.exists():
             self._ok("cargar_historia")
             return self.progreso()[0]
@@ -175,32 +122,8 @@ class ExpertoCarrera:
                 cargadas += 1
         return cargadas
 
-
 class CarreraBotGUI:
-    """Interfaz grafica del sistema experto.
 
-    El flujo de interaccion esta gobernado por un AUTOMATA FINITO
-    DETERMINISTA (DFA) implementado de forma explicita (ver el
-    diccionario DFA): cada seleccion del usuario es un simbolo de
-    entrada que dispara una transicion de estado, y los widgets se
-    habilitan o deshabilitan segun el estado actual.
-
-      Estados:
-        S0 = inicio            (esperando que se elija una accion)
-        S1 = esperando materia (la accion elegida necesita una materia)
-        S2 = listo             (la consulta puede ejecutarse)
-
-      Alfabeto de entrada (eventos):
-        accion_simple      -> se eligio una accion que no pide materia
-        accion_con_materia -> se eligio una accion que pide materia
-        materia_elegida    -> se eligio una materia en el desplegable
-        consultar          -> se presiono el boton Consultar
-
-    S2 es el estado de aceptacion: solo alli el boton esta habilitado.
-    Al ejecutarse la consulta, el automata vuelve al estado inicial S0.
-    """
-
-    # Funcion de transicion delta: (estado, evento) -> estado
     DFA = {
         ("S0", "accion_simple"):      "S2",
         ("S0", "accion_con_materia"): "S1",
@@ -213,7 +136,6 @@ class CarreraBotGUI:
         ("S2", "consultar"):          "S0",
     }
 
-    # Paleta de colores de la interfaz
     COLOR_HEADER = "#2c3e50"
     COLOR_FONDO = "#f0f2f5"
     COLOR_APROBADA = "#27ae60"
@@ -224,7 +146,7 @@ class CarreraBotGUI:
 
     def __init__(self, root):
         self.bot = ExpertoCarrera()
-        self.estado = "S0"  # estado actual del DFA
+        self.estado = "S0"
 
         self.root = root
         self.root.title("CarreraBot 🎓")
@@ -233,9 +155,6 @@ class CarreraBotGUI:
         self.root.minsize(1060, 640)
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
 
-        # En macOS con modo oscuro, los widgets ttk heredan el tema del
-        # sistema y desentonan con el fondo claro de la app: se fuerza la
-        # apariencia clara de la ventana (si la version de Tk lo permite).
         try:
             self.root.tk.call("tk::unsupported::MacWindowStyle",
                               "appearance", self.root, "aqua")
@@ -247,7 +166,6 @@ class CarreraBotGUI:
         self.fuente_lista = tkfont.Font(family="Helvetica Neue", size=12)
         self.fuente_boton = tkfont.Font(family="Helvetica Neue", size=12, weight="bold")
 
-        # Acciones disponibles: (etiqueta, requiere_materia, handler)
         self.acciones = [
             ("¿Qué puedo cursar ahora?",            False, self.h_que_puedo_cursar),
             ("¿Qué me falta para una materia?",     True,  self.h_que_me_falta),
@@ -257,14 +175,11 @@ class CarreraBotGUI:
             ("Analizar mi avance (Máq. de Turing)", False, self.h_turing),
         ]
 
-        # El footer y los controles se anclan abajo ANTES de empaquetar el
-        # cuerpo: asi Tk les reserva espacio aunque la ventana sea chica.
         self._armar_header()
         self._armar_footer()
         self._armar_controles()
         self._armar_cuerpo()
 
-        # Restaurar la sesion anterior, si existe.
         cargadas = self.bot.cargar_estado()
         self.refrescar_plan()
         self._aplicar_estado()
@@ -286,7 +201,7 @@ class CarreraBotGUI:
                 "actividades aprobadas. 💾"
             )
 
-    # ================= construccion de la interfaz =================
+    # construccion de la interfaz
 
     def _armar_header(self):
         header = tk.Frame(self.root, bg=self.COLOR_HEADER, height=64)
@@ -300,7 +215,7 @@ class CarreraBotGUI:
         cuerpo = tk.Frame(self.root, bg=self.COLOR_FONDO)
         cuerpo.pack(fill=tk.BOTH, expand=True, padx=14, pady=10)
 
-        # ---------- panel izquierdo: plan de estudios ----------
+        # panel izquierdo: plan de estudios
         panel_plan = tk.Frame(cuerpo, bg=self.COLOR_FONDO)
         panel_plan.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 10))
 
@@ -340,7 +255,7 @@ class CarreraBotGUI:
             font=self.fuente_texto, bg=self.COLOR_FONDO, fg="#666666",
         ).pack(anchor="w", pady=(6, 0))
 
-        # ---------- panel derecho: chat ----------
+        # panel derecho: chat
         marco_chat = tk.Frame(cuerpo, bg="white", bd=2, relief=tk.GROOVE)
         marco_chat.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
@@ -413,19 +328,15 @@ class CarreraBotGUI:
             font=("Helvetica Neue", 10), fg="#7f8c8d", bg="#ecf0f1",
         ).pack(pady=8)
 
-    # ================= automata finito (DFA) =================
+    # automata finito (DFA)
 
     def transicion(self, evento):
-        """Aplica la funcion de transicion del DFA y actualiza la interfaz.
-        Un evento no definido para el estado actual se ignora (la cadena
-        de entrada no avanza)."""
         nuevo = self.DFA.get((self.estado, evento))
         if nuevo is not None:
             self.estado = nuevo
             self._aplicar_estado()
 
     def _aplicar_estado(self):
-        """Habilita/deshabilita widgets segun el estado actual del DFA."""
         if self.estado == "S0":
             self.combo_accion.set("Elegí una consulta")
             self.combo_materia.set("—")
@@ -438,7 +349,7 @@ class CarreraBotGUI:
             self.boton_consultar.config(state="disabled")
         elif self.estado == "S2":
             accion = self._accion_actual()
-            if accion is not None and accion[1]:  # la accion usa materia
+            if accion is not None and accion[1]:
                 self.combo_materia.config(state="readonly")
             else:
                 self.combo_materia.set("—")
@@ -458,7 +369,7 @@ class CarreraBotGUI:
                 return slug
         return None
 
-    # ================= eventos de la interfaz =================
+    # eventos de la interfaz
 
     def on_accion_seleccionada(self, _evento):
         accion = self._accion_actual()
@@ -496,11 +407,11 @@ class CarreraBotGUI:
                 handler(slug)
             else:
                 handler()
-        except Exception as e:  # errores inesperados del puente Prolog
+        except Exception as e:
             messagebox.showerror("Error", f"Ocurrió un error: {e}")
         finally:
             self.boton_consultar.config(text="🔎 Consultar")
-            self.transicion("consultar")  # el DFA vuelve al estado inicial
+            self.transicion("consultar")
 
     def on_marcar_aprobada(self):
         slug = self._slug_seleccionado_en_lista()
@@ -523,7 +434,6 @@ class CarreraBotGUI:
             self.mensaje_bot(texto)
             self.refrescar_plan()
         else:
-            # Modulo de explicacion: el motor rechazo la operacion.
             faltan = self.bot.faltantes_directas(slug)
             self.mensaje_bot(
                 f"No puedo registrar {nombre} como aprobada: según el "
@@ -555,13 +465,12 @@ class CarreraBotGUI:
             )
 
     def on_close(self):
-        """Al cerrar la ventana se persiste el estado de la sesion."""
         try:
             self.bot.guardar_estado()
         finally:
             self.root.destroy()
 
-    # ================= handlers de consultas =================
+    # handlers de consultas
 
     def h_que_puedo_cursar(self):
         cursables = self.bot.cursables()
@@ -687,8 +596,6 @@ class CarreraBotGUI:
 
     def h_turing(self):
         cinta, resultado, arrastradas = self.bot.avance_turing()
-        # La cinta formal es una sola cadena de 65 simbolos; para leerla
-        # mas comodo se muestra una linea por anio del plan.
         anios = [a for _, _, a, _, _, _ in self.bot.materias_info()]
         lineas_cinta, inicio = [], 0
         for anio in sorted(set(anios)):
@@ -721,7 +628,7 @@ class CarreraBotGUI:
             )
         self.mensaje_bot(texto)
 
-    # ================= utilidades de la interfaz =================
+    # utilidades de la interfaz
 
     def _linea_materia(self, slug):
         for m, nom, anio, cuatri, _, _ in self.bot.materias_info():
@@ -738,7 +645,6 @@ class CarreraBotGUI:
         return self.orden_plan[seleccion[0]]
 
     def refrescar_plan(self):
-        """Redibuja el listado del plan con el estado actual de cada materia."""
         colores = {
             "aprobada": self.COLOR_APROBADA,
             "disponible": self.COLOR_DISPONIBLE,
@@ -770,12 +676,10 @@ class CarreraBotGUI:
         self.chat.config(state="disabled")
         self.chat.see(tk.END)
 
-
 def main():
     root = tk.Tk()
     CarreraBotGUI(root)
     root.mainloop()
-
 
 if __name__ == "__main__":
     main()
